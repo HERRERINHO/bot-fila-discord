@@ -85,6 +85,9 @@ client.once(Events.ClientReady,c=>console.log(`Online como ${c.user.tag}`));
 
 client.on(Events.InteractionCreate,async i=>{
  try {
+ if(i.isChatInputCommand() && i.commandName==="painel"){
+  return i.reply({...configPanel(i.guildId),ephemeral:true});
+ }
  if(i.isButton()){
   if(i.customId==="cfg:create"){
    const modal=new ModalBuilder().setCustomId("cfgmodal:create").setTitle("Criar nova fila");
@@ -267,7 +270,6 @@ client.on(Events.InteractionCreate,async i=>{
  }
  if(!i.isChatInputCommand())return;
  const sub=i.options.getSubcommand(false);
- if(i.commandName==="painel"){await i.deferReply({ephemeral:true});return i.editReply(configPanel(i.guildId));}
  if(i.commandName==="fila"){
   if(sub==="criar"){
    const nome=i.options.getString("nome",true), formato=i.options.getInteger("formato",true), role=i.options.getRole("cargo",false);

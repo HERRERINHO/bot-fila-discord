@@ -1,5 +1,5 @@
 require("dotenv").config();
-const {Client,GatewayIntentBits,Events,EmbedBuilder,ActionRowBuilder,ButtonBuilder,ButtonStyle,ChannelType}=require("discord.js");
+const {Client,GatewayIntentBits,Events,EmbedBuilder,ActionRowBuilder,ButtonBuilder,ButtonStyle,ChannelType,ModalBuilder,TextInputBuilder,TextInputStyle,StringSelectMenuBuilder}=require("discord.js");
 const db=require("./db");
 const client=new Client({intents:[GatewayIntentBits.Guilds]});
 
@@ -7,6 +7,23 @@ function getQueue(id){return db.prepare("SELECT * FROM queues WHERE id=?").get(i
 function members(id){return db.prepare("SELECT user_id FROM queue_members WHERE queue_id=? ORDER BY joined_at").all(id)}
 function blocked(g,u){return !!db.prepare("SELECT 1 FROM blacklist WHERE guild_id=? AND user_id=?").get(g,u)}
 
+function configPanel(guildId){
+ const qs=db.prepare("SELECT * FROM queues WHERE guild_id=? ORDER BY id").all(guildId);
+ const e=new EmbedBuilder().setTitle("⚙️ MASTER BOOT • CONFIGURAÇÃO DE FILAS")
+  .setDescription("Use este painel para criar e administrar cada fila separadamente.\n\n**Ações disponíveis**\n🎟️ Criar fila\n⚙️ Gerenciar uma fila existente\n🟢 Abrir / 🔴 Fechar\n🧹 Resetar jogadores\n🗑️ Excluir fila")
+  .addFields({name:"📋 Filas cadastradas",value:qs.length?qs.map(q=>`**#${q.id}** • ${q.name} • ${q.format}x${q.format} • ${q.price} • ${q.status}`).join("\n").slice(0,1024):"_Nenhuma fila cadastrada._"})
+  .setFooter({text:"MASTER BOOT • Painel administrativo"});
+ const rows=[
+  new ActionRowBuilder().addComponents(
+   new ButtonBuilder().setCustomId("cfg:create").setLabel("CRIAR FILA").setEmoji("🎟️").setStyle(ButtonStyle.Success),
+   new ButtonBuilder().setCustomId("cfg:manage").setLabel("GERENCIAR FILA").setEmoji("⚙️").setStyle(ButtonStyle.Primary)
+  ),
+  new ActionRowBuilder().addComponents(
+   new ButtonBuilder().setCustomId("cfg:refresh").setLabel("ATUALIZAR PAINEL").setEmoji("🔄").setStyle(ButtonStyle.Secondary)
+  )
+ ];
+ return {embeds:[e],components:rows};
+}
 function panel(q){
  const ms=members(q.id), max=q.format*2;
  const count=ms.length;
@@ -68,6 +85,32 @@ client.once(Events.ClientReady,c=>console.log(`Online como ${c.user.tag}`));
 
 client.on(Events.InteractionCreate,async i=>{
  if(i.isButton()){
+  if(i.customId==="cfg:create"){
+   const modal=new ModalBuilder().setCustomId("cfgmodal:create").setTitle("Criar nova fila");
+   const fields=[
+    ["nome","Nome da fila","Ex.: 1x1 | Fila"],
+    ["formato","Formato","1, 2, 3, 4 ou 5 (jogadores por time)"],
+    ["preco","Taxa de inscrição","Ex.: R$ 5,00"],
+    ["plataforma","Plataforma","Emulador ou Mobile"],
+    ["modo","Modo","Gelo normal ou Gelo infinito"]
+   ].map(([id,label,ph])=>new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId(id).setLabel(label).setPlaceholder(ph).setStyle(TextInputStyle.Short).setRequired(true)));
+   modal.addComponents(...fields);
+   return i.showModal(modal);
+  }
+  if(i.customId==="cfg:refresh")return i.update(configPanel(i.guildId));
+  if(i.customId==="cfg:manage"){
+   const qs=db.prepare("SELECT id,name FROM queues WHERE guild_id=? ORDER BY id").all(i.guildId);
+   if(!qs.length)return i.reply({content:"Nenhuma fila cadastrada.",ephemeral:true});
+   const menu=new StringSelectMenuBuilder().setCustomId("cfg:select").setPlaceholder("Selecione a fila para gerenciar").addOptions(qs.slice(0,25).map(q=>({label:q.name.slice(0,100),value:String(q.id),description:"Fila #"+q.id})));
+   return i.reply({content:"⚙️ **Gerenciar fila**",components:[new ActionRowBuilder().addComponents(menu)],ephemeral:true});
+  }
+  if(i.customId.startsWith("cfgact:")){
+   const [,action,idRaw]=i.customId.split(":"); const id=Number(idRaw); const q=getQueue(id);
+   if(!q||q.guild_id!==i.guildId)return i.reply({content:"Fila inválida.",ephemeral:true});
+   if(action==="open"||action==="close"){db.prepare("UPDATE queues SET status=? WHERE id=?").run(action==="open"?"open":"closed",id);await updatePanel(getQueue(id));return i.update({content:`✅ Fila **#${id}** ${action==="open"?"aberta":"fechada"}.`,components:[]});}
+   if(action==="reset"){db.prepare("DELETE FROM queue_members WHERE queue_id=?").run(id);await updatePanel(getQueue(id));return i.update({content:`🧹 Fila **#${id}** resetada.`,components:[]});}
+   if(action==="delete"){db.prepare("DELETE FROM queue_members WHERE queue_id=?").run(id);db.prepare("DELETE FROM queues WHERE id=?").run(id);return i.update({content:`🗑️ Fila **#${id}** excluída.`,components:[]});}
+  }
   const [action,idRaw]=i.customId.split(":"); const id=Number(idRaw); const q=getQueue(id);
   if(!q)return i.reply({content:"Fila não encontrada.",ephemeral:true});
   if(action==="view"){
@@ -89,8 +132,38 @@ client.on(Events.InteractionCreate,async i=>{
    await updatePanel(q); return i.reply({content:"✅ Você saiu da fila.",ephemeral:true});
   }
  }
+ if(i.isModalSubmit() && i.customId==="cfgmodal:create"){
+  const nome=i.fields.getTextInputValue("nome").trim();
+  const formato=Number(i.fields.getTextInputValue("formato").trim());
+  const precoRaw=i.fields.getTextInputValue("preco").trim();
+  const plataforma=i.fields.getTextInputValue("plataforma").trim();
+  const modo=i.fields.getTextInputValue("modo").trim();
+  if(![1,2,3,4,5].includes(formato))return i.reply({content:"❌ Formato inválido. Use 1, 2, 3, 4 ou 5.",ephemeral:true});
+  if(!/^R\\$\\s*\\d{1,4}(?:[.,]\\d{2})?$/.test(precoRaw))return i.reply({content:"❌ Preço inválido. Ex.: **R$ 5,00**.",ephemeral:true});
+  if(!["Emulador","Mobile"].includes(plataforma))return i.reply({content:"❌ Plataforma inválida.",ephemeral:true});
+  if(!["Gelo normal","Gelo infinito"].includes(modo))return i.reply({content:"❌ Modo inválido.",ephemeral:true});
+  const r=db.prepare("INSERT INTO queues(guild_id,name,format,channel_id,created_at,role_id,price,platform,mode,image_url) VALUES(?,?,?,?,?,?,?,?,?,?)").run(i.guildId,nome,formato,i.channelId,Date.now(),null,precoRaw,plataforma,modo,null);
+  const q=getQueue(r.lastInsertRowid),msg=await i.channel.send(panel(q));
+  db.prepare("UPDATE queues SET message_id=? WHERE id=?").run(msg.id,q.id);
+  return i.reply({content:`✅ Fila **${nome}** criada como **#${q.id}**.`,ephemeral:true});
+ }
+ if(i.isStringSelectMenu() && i.customId==="cfg:select"){
+  const id=Number(i.values[0]),q=getQueue(id);
+  if(!q||q.guild_id!==i.guildId)return i.update({content:"Fila inválida.",components:[]});
+  const e=new EmbedBuilder().setTitle(`⚙️ Gerenciar • #${q.id} ${q.name}`).setDescription(`**${q.format}x${q.format} • ${q.platform} • ${q.mode} • ${q.price}**\nStatus: ${q.status==="open"?"🟢 Aberta":"🔴 Fechada"}\nJogadores: **${members(q.id).length}/${q.format*2}**`);
+  const rows=[
+   new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`cfgact:open:${id}`).setLabel("ABRIR").setEmoji("🟢").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`cfgact:close:${id}`).setLabel("FECHAR").setEmoji("🔴").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`cfgact:reset:${id}`).setLabel("RESETAR").setEmoji("🧹").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`cfgact:delete:${id}`).setLabel("EXCLUIR").setEmoji("🗑️").setStyle(ButtonStyle.Danger)
+   )
+  ];
+  return i.update({embeds:[e],components:rows});
+ }
  if(!i.isChatInputCommand())return;
  const sub=i.options.getSubcommand(false);
+ if(i.commandName==="painel")return i.reply({...configPanel(i.guildId),ephemeral:true});
  if(i.commandName==="fila"){
   if(sub==="criar"){
    const nome=i.options.getString("nome",true), formato=i.options.getInteger("formato",true), role=i.options.getRole("cargo",false);

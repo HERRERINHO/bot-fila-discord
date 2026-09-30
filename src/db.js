@@ -26,5 +26,7 @@ CREATE TABLE IF NOT EXISTS blacklist(guild_id TEXT NOT NULL,user_id TEXT NOT NUL
 const columns=db.prepare("PRAGMA table_info(queues)").all().map(c=>c.name);
 if(!columns.includes("price")) db.exec("ALTER TABLE queues ADD COLUMN price TEXT NOT NULL DEFAULT 'R$ 0,00'");
 if(!columns.includes("platform")) db.exec("ALTER TABLE queues ADD COLUMN platform TEXT NOT NULL DEFAULT 'Emulador'");
+if(!columns.includes("mode")) db.exec("ALTER TABLE queues ADD COLUMN mode TEXT NOT NULL DEFAULT 'Gelo normal'");
+if(!columns.includes("image_url")) db.exec("ALTER TABLE queues ADD COLUMN image_url TEXT");
 
 module.exports=db;

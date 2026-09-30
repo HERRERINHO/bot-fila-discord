@@ -1,7 +1,7 @@
 require("dotenv").config();
 const {Client,GatewayIntentBits,Events,EmbedBuilder,ActionRowBuilder,ButtonBuilder,ButtonStyle,ChannelType}=require("discord.js");
 const db=require("./db");
-const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers]});
+const client=new Client({intents:[GatewayIntentBits.Guilds]});
 
 function getQueue(id){return db.prepare("SELECT * FROM queues WHERE id=?").get(id)}
 function members(id){return db.prepare("SELECT user_id FROM queue_members WHERE queue_id=? ORDER BY joined_at").all(id)}

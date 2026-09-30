@@ -225,6 +225,25 @@ client.on(Events.InteractionCreate,async i=>{
   await updatePanel(getQueue(id));
   return i.reply({content:`✅ Logo da fila **#${id}** atualizada.`,ephemeral:true});
  }
+ if(i.isChannelSelectMenu() && i.customId.startsWith("cfgselect:channel:")){
+  const id=Number(i.customId.split(":")[2]),q=getQueue(id),channelId=i.values[0];
+  if(!q||q.guild_id!==i.guildId)return i.update({content:"Fila inválida.",components:[]});
+  const oldCh=await i.guild.channels.fetch(q.channel_id).catch(()=>null);
+  const oldMsg=q.message_id&&oldCh?.messages?await oldCh.messages.fetch(q.message_id).catch(()=>null):null;
+  const ch=await i.guild.channels.fetch(channelId).catch(()=>null);
+  if(!ch?.isTextBased())return i.update({content:"Canal inválido.",components:[]});
+  const msg=await ch.send(panel(q)).catch(()=>null);
+  if(!msg)return i.update({content:"❌ Não consegui publicar nesse canal. Verifique as permissões.",components:[]});
+  db.prepare("UPDATE queues SET channel_id=?,message_id=? WHERE id=?").run(channelId,msg.id,id);
+  if(oldMsg)await oldMsg.delete().catch(()=>{});
+  return i.update({content:`✅ Fila **#${id}** movida para <#${channelId}>.`,components:[]});
+ }
+ if(i.isRoleSelectMenu() && i.customId.startsWith("cfgselect:role:")){
+  const id=Number(i.customId.split(":")[2]),q=getQueue(id),roleId=i.values[0];
+  if(!q||q.guild_id!==i.guildId)return i.update({content:"Fila inválida.",components:[]});
+  db.prepare("UPDATE queues SET role_id=? WHERE id=?").run(roleId,id);
+  return i.update({content:`✅ Cargo <@&${roleId}> definido para a fila **#${id}**.`,components:[]});
+ }
  if(i.isStringSelectMenu() && i.customId==="cfg:select"){
   const id=Number(i.values[0]),q=getQueue(id);
   if(!q||q.guild_id!==i.guildId)return i.update({content:"Fila inválida.",components:[]});

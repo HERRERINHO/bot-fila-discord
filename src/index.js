@@ -84,6 +84,11 @@ client.on(Events.InteractionCreate,async i=>{
    const qs=db.prepare("SELECT * FROM queues WHERE guild_id=? ORDER BY id").all(i.guildId);
    return i.reply({content:qs.length?qs.map(q=>`**#${q.id}** ${q.name} • ${q.format}x${q.format} • ${q.status} • ${members(q.id).length} pessoas`).join("\n"):"Nenhuma fila criada.",ephemeral:true});
   }
+  if(sub==="mediador"){
+   const u=i.options.getUser("usuario",true);
+   db.prepare(`INSERT INTO stats(guild_id,user_id,mediator_count) VALUES(?,?,1) ON CONFLICT(guild_id,user_id) DO UPDATE SET mediator_count=mediator_count+1`).run(i.guildId,u.id);
+   return i.reply({content:`✅ <@${u.id}> registrado como mediador.`,ephemeral:true});
+  }
   const id=i.options.getInteger("id",false),q=id&&getQueue(id);
   if(!q||q.guild_id!==i.guildId)return i.reply({content:"Fila inválida.",ephemeral:true});
   if(sub==="fechar"||sub==="abrir"){db.prepare("UPDATE queues SET status=? WHERE id=?").run(sub==="abrir"?"open":"closed",id);await updatePanel(getQueue(id));return i.reply({content:"✅ Status atualizado.",ephemeral:true})}
@@ -91,7 +96,6 @@ client.on(Events.InteractionCreate,async i=>{
   if(sub==="deletar"){db.prepare("DELETE FROM queue_members WHERE queue_id=?").run(id);db.prepare("DELETE FROM queues WHERE id=?").run(id);return i.reply({content:"🗑️ Fila excluída.",ephemeral:true})}
   if(sub==="remover"){const u=i.options.getUser("usuario",true),r=db.prepare("DELETE FROM queue_members WHERE queue_id=? AND user_id=?").run(id,u.id);await updatePanel(q);return i.reply({content:r.changes?`✅ <@${u.id}> removido.`:"Usuário não estava na fila.",ephemeral:true})}
   if(sub==="proxima"){const m=members(id)[0];if(!m)return i.reply({content:"Fila vazia.",ephemeral:true});db.prepare("DELETE FROM queue_members WHERE queue_id=? AND user_id=?").run(id,m.user_id);await updatePanel(q);return i.reply(`🔔 Próximo: <@${m.user_id}>`)}
-  if(sub==="mediador"){const u=i.options.getUser("usuario",true);db.prepare(`INSERT INTO stats(guild_id,user_id,mediator_count) VALUES(?,?,1) ON CONFLICT(guild_id,user_id) DO UPDATE SET mediator_count=mediator_count+1`).run(i.guildId,u.id);return i.reply({content:`✅ <@${u.id}> registrado como mediador.`,ephemeral:true})}
  }
  if(i.commandName==="perfil"){
   const s=db.prepare("SELECT * FROM stats WHERE guild_id=? AND user_id=?").get(i.guildId,i.user.id)||{matches:0,wins:0,mediator_count:0};

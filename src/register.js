@@ -34,6 +34,7 @@ const commands=[
     .addSubcommand(s=>s.setName("mediador").setDescription("Registra mediador")
       .addUserOption(o=>o.setName("usuario").setDescription("Usuário").setRequired(true))),
 
+  new SlashCommandBuilder().setName("painel").setDescription("Abre o painel de configuração das filas").setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
   new SlashCommandBuilder().setName("perfil").setDescription("Mostra seu perfil"),
   new SlashCommandBuilder().setName("ranking").setDescription("Mostra o ranking"),
 

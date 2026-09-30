@@ -84,6 +84,7 @@ async function startMatch(q,guild){
 client.once(Events.ClientReady,c=>console.log(`Online como ${c.user.tag}`));
 
 client.on(Events.InteractionCreate,async i=>{
+ try {
  if(i.isButton()){
   if(i.customId==="cfg:create"){
    const modal=new ModalBuilder().setCustomId("cfgmodal:create").setTitle("Criar nova fila");
@@ -266,7 +267,7 @@ client.on(Events.InteractionCreate,async i=>{
  }
  if(!i.isChatInputCommand())return;
  const sub=i.options.getSubcommand(false);
- if(i.commandName==="painel")return i.reply({...configPanel(i.guildId),ephemeral:true});
+ if(i.commandName==="painel"){await i.deferReply({ephemeral:true});return i.editReply(configPanel(i.guildId));}
  if(i.commandName==="fila"){
   if(sub==="criar"){
    const nome=i.options.getString("nome",true), formato=i.options.getInteger("formato",true), role=i.options.getRole("cargo",false);
@@ -310,6 +311,13 @@ client.on(Events.InteractionCreate,async i=>{
   const u=i.options.getUser("usuario",true);
   if(sub==="adicionar"){const motivo=i.options.getString("motivo",false)||"Sem motivo informado";db.prepare("INSERT OR REPLACE INTO blacklist(guild_id,user_id,reason) VALUES(?,?,?)").run(i.guildId,u.id,motivo);return i.reply({content:`⛔ <@${u.id}> entrou na blacklist.`,ephemeral:true})}
   db.prepare("DELETE FROM blacklist WHERE guild_id=? AND user_id=?").run(i.guildId,u.id);return i.reply({content:`✅ <@${u.id}> saiu da blacklist.`,ephemeral:true});
+ } 
+ } catch(err) {
+  console.error("Interaction error:",err);
+  try {
+   if(i.deferred) await i.editReply({content:"❌ Ocorreu um erro. Veja os logs do Railway.",embeds:[],components:[]});
+   else if(!i.replied) await i.reply({content:"❌ Ocorreu um erro. Veja os logs do Railway.",ephemeral:true});
+  } catch(e) {}
  }
 });
 client.login(process.env.DISCORD_TOKEN);

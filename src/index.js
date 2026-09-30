@@ -9,14 +9,31 @@ function blocked(g,u){return !!db.prepare("SELECT 1 FROM blacklist WHERE guild_i
 
 function panel(q){
  const ms=members(q.id), max=q.format*2;
- const list=ms.length?ms.map((m,i)=>`**${i+1}.** <@${m.user_id}>`).join("\n"):"Ninguém na fila.";
- const e=new EmbedBuilder().setTitle(`${q.emoji} ${q.name}`)
-  .setDescription(`**Formato:** ${q.format}x${q.format}\n**Status:** ${q.status==="open"?"🟢 Aberta":"🔴 Fechada"}\n**Jogadores:** ${ms.length}/${max}`)
-  .addFields({name:"Fila",value:list.slice(0,1024)}).setFooter({text:`Fila #${q.id} • Entre e aguarde sua vez`}).setTimestamp();
+ const count=ms.length;
+ const list=ms.length
+  ? ms.map((m,i)=>`**${String(i+1).padStart(2,"0")}**  <@${m.user_id}>`).join("\n")
+  : "_Aguardando jogadores..._";
+ const remaining=Math.max(0,max-count);
+ const progress="▰".repeat(Math.min(10,Math.round((count/max)*10)))+"▱".repeat(Math.max(0,10-Math.round((count/max)*10)));
+ const e=new EmbedBuilder()
+  .setTitle(`${q.emoji}  ${q.name}`)
+  .setDescription(`**${q.format}x${q.format} • ${q.platform}**\n\n`+
+   `${q.status==="open"?"🟢 **FILA ABERTA**":"🔴 **FILA FECHADA**"}\n`+
+   `👥 **Jogadores:** ${count}/${max}\n`+
+   `▰▰▰▰▰▰▰▰▰▰\n`+
+   `${remaining>0?`⏳ Faltam **${remaining}** jogador(es)`:"🔥 **FILA COMPLETA — PARTIDA SENDO MONTADA**"}`)
+  .addFields(
+   {name:"💰 Taxa de inscrição",value:`**${q.price}**`,inline:true},
+   {name:"🎮 Plataforma",value:`**${q.platform}**`,inline:true},
+   {name:"👑 Jogadores",value:list.slice(0,1024)}
+  )
+  .setFooter({text:`MASTER BOOT • Fila #${q.id}`})
+  .setTimestamp();
  const row=new ActionRowBuilder().addComponents(
-  new ButtonBuilder().setCustomId(`join:${q.id}`).setLabel("Entrar").setEmoji("🎟️").setStyle(ButtonStyle.Success),
-  new ButtonBuilder().setCustomId(`leave:${q.id}`).setLabel("Sair").setEmoji("🚪").setStyle(ButtonStyle.Danger),
-  new ButtonBuilder().setCustomId(`view:${q.id}`).setLabel("Ver fila").setEmoji("📋").setStyle(ButtonStyle.Secondary));
+  new ButtonBuilder().setCustomId(`join:${q.id}`).setLabel("ENTRAR NA FILA").setEmoji("🎟️").setStyle(ButtonStyle.Success).setDisabled(q.status!=="open"||count>=max),
+  new ButtonBuilder().setCustomId(`leave:${q.id}`).setLabel("SAIR").setEmoji("🚪").setStyle(ButtonStyle.Danger),
+  new ButtonBuilder().setCustomId(`view:${q.id}`).setLabel("JOGADORES").setEmoji("👥").setStyle(ButtonStyle.Secondary)
+ );
  return {embeds:[e],components:[row]};
 }
 async function updatePanel(q){
@@ -75,14 +92,18 @@ client.on(Events.InteractionCreate,async i=>{
  if(i.commandName==="fila"){
   if(sub==="criar"){
    const nome=i.options.getString("nome",true), formato=i.options.getInteger("formato",true), role=i.options.getRole("cargo",false);
-   const r=db.prepare("INSERT INTO queues(guild_id,name,format,channel_id,created_at,role_id) VALUES(?,?,?,?,?,?)").run(i.guildId,nome,formato,i.channelId,Date.now(),role?.id||null);
+   const precoRaw=i.options.getString("preco",true).trim();
+   const plataforma=i.options.getString("plataforma",true);
+   const preco=/^R\\$\\s*\\d{1,4}(?:[.,]\\d{2})?$/.test(precoRaw)?precoRaw:"";
+   if(!preco)return i.reply({content:"❌ Preço inválido. Use, por exemplo, **R$ 5,00**.",ephemeral:true});
+   const r=db.prepare("INSERT INTO queues(guild_id,name,format,channel_id,created_at,role_id,price,platform) VALUES(?,?,?,?,?,?,?,?)").run(i.guildId,nome,formato,i.channelId,Date.now(),role?.id||null,preco,plataforma);
    const q=getQueue(r.lastInsertRowid), msg=await i.channel.send(panel(q));
    db.prepare("UPDATE queues SET message_id=? WHERE id=?").run(msg.id,q.id);
    return i.reply({content:`✅ Fila **${nome}** criada como #${q.id}.`,ephemeral:true});
   }
   if(sub==="listar"){
    const qs=db.prepare("SELECT * FROM queues WHERE guild_id=? ORDER BY id").all(i.guildId);
-   return i.reply({content:qs.length?qs.map(q=>`**#${q.id}** ${q.name} • ${q.format}x${q.format} • ${q.status} • ${members(q.id).length} pessoas`).join("\n"):"Nenhuma fila criada.",ephemeral:true});
+   return i.reply({content:qs.length?qs.map(q=>`**#${q.id}** ${q.name} • ${q.format}x${q.format} • ${q.platform} • ${q.price} • ${q.status} • ${members(q.id).length}/${q.format*2}`).join("\n"):"Nenhuma fila criada.",ephemeral:true});
   }
   if(sub==="mediador"){
    const u=i.options.getUser("usuario",true);

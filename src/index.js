@@ -1,5 +1,5 @@
 require("dotenv").config();
-const {Client,GatewayIntentBits,Events,EmbedBuilder,ActionRowBuilder,ButtonBuilder,ButtonStyle,ChannelType,ModalBuilder,TextInputBuilder,TextInputStyle,StringSelectMenuBuilder}=require("discord.js");
+const {Client,GatewayIntentBits,Events,EmbedBuilder,ActionRowBuilder,ButtonBuilder,ButtonStyle,ChannelType,ModalBuilder,TextInputBuilder,TextInputStyle,StringSelectMenuBuilder,ChannelSelectMenuBuilder,RoleSelectMenuBuilder}=require("discord.js");
 const db=require("./db");
 const client=new Client({intents:[GatewayIntentBits.Guilds]});
 
@@ -104,6 +104,63 @@ client.on(Events.InteractionCreate,async i=>{
    const menu=new StringSelectMenuBuilder().setCustomId("cfg:select").setPlaceholder("Selecione a fila para gerenciar").addOptions(qs.slice(0,25).map(q=>({label:q.name.slice(0,100),value:String(q.id),description:"Fila #"+q.id})));
    return i.reply({content:"⚙️ **Gerenciar fila**",components:[new ActionRowBuilder().addComponents(menu)],ephemeral:true});
   }
+  if(i.customId.startsWith("cfgedit:")){
+   const id=Number(i.customId.split(":")[1]),q=getQueue(id);
+   if(!q||q.guild_id!==i.guildId)return i.reply({content:"Fila inválida.",ephemeral:true});
+   const modal=new ModalBuilder().setCustomId(`cfgmodal:edit:${id}`).setTitle(`Editar fila #${id}`);
+   const vals=[
+    ["nome","Nome da fila",q.name],
+    ["preco","Taxa de inscrição",q.price],
+    ["formato","Formato (1-5)",String(q.format)],
+    ["plataforma","Plataforma",q.platform],
+    ["modo","Modo",q.mode]
+   ].map(([id,label,value])=>new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId(id).setLabel(label).setValue(value||"").setStyle(TextInputStyle.Short).setRequired(true)));
+   return i.showModal(modal.addComponents(...vals));
+  }
+  if(i.customId.startsWith("cfgimage:")){
+   const id=Number(i.customId.split(":")[1]),q=getQueue(id);
+   if(!q||q.guild_id!==i.guildId)return i.reply({content:"Fila inválida.",ephemeral:true});
+   const modal=new ModalBuilder().setCustomId(`cfgmodal:image:${id}`).setTitle("Logo da fila");
+   modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("url").setLabel("URL da imagem").setPlaceholder("https://...").setValue(q.image_url||"").setStyle(TextInputStyle.Short).setRequired(false)));
+   return i.showModal(modal);
+  }
+  if(i.customId.startsWith("cfgchannel:")){
+   const id=Number(i.customId.split(":")[1]),q=getQueue(id);
+   if(!q||q.guild_id!==i.guildId)return i.reply({content:"Fila inválida.",ephemeral:true});
+   const menu=new ChannelSelectMenuBuilder().setCustomId(`cfgselect:channel:${id}`).setPlaceholder("Escolha o canal da fila").setChannelTypes(ChannelType.GuildText);
+   return i.reply({content:"📢 **Selecione o canal onde a fila será publicada.**",components:[new ActionRowBuilder().addComponents(menu)],ephemeral:true});
+  }
+  if(i.customId.startsWith("cfgrole:")){
+   const id=Number(i.customId.split(":")[1]),q=getQueue(id);
+   if(!q||q.guild_id!==i.guildId)return i.reply({content:"Fila inválida.",ephemeral:true});
+   const menu=new RoleSelectMenuBuilder().setCustomId(`cfgselect:role:${id}`).setPlaceholder("Escolha o cargo permitido");
+   return i.reply({content:"🛡️ **Selecione o cargo necessário para entrar na fila.**",components:[new ActionRowBuilder().addComponents(menu),new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`cfgroleclear:${id}`).setLabel("REMOVER RESTRIÇÃO").setStyle(ButtonStyle.Danger))],ephemeral:true});
+  }
+  if(i.customId.startsWith("cfgroleclear:")){
+   const id=Number(i.customId.split(":")[1]),q=getQueue(id);
+   if(!q||q.guild_id!==i.guildId)return i.update({content:"Fila inválida.",components:[]});
+   db.prepare("UPDATE queues SET role_id=NULL WHERE id=?").run(id);
+   return i.update({content:"✅ Restrição de cargo removida.",components:[]});
+  }
+  if(i.customId.startsWith("cfgselect:channel:")){
+   const id=Number(i.customId.split(":")[2]),q=getQueue(id),channelId=i.values[0];
+   if(!q||q.guild_id!==i.guildId)return i.update({content:"Fila inválida.",components:[]});
+   const oldCh=await i.guild.channels.fetch(q.channel_id).catch(()=>null);
+   const oldMsg=q.message_id&&oldCh?.messages?await oldCh.messages.fetch(q.message_id).catch(()=>null):null;
+   const ch=await i.guild.channels.fetch(channelId).catch(()=>null);
+   if(!ch?.isTextBased())return i.update({content:"Canal inválido.",components:[]});
+   const msg=await ch.send(panel(q)).catch(()=>null);
+   if(!msg)return i.update({content:"❌ Não consegui publicar nesse canal. Verifique as permissões.",components:[]});
+   db.prepare("UPDATE queues SET channel_id=?,message_id=? WHERE id=?").run(channelId,msg.id,id);
+   if(oldMsg)await oldMsg.delete().catch(()=>{});
+   return i.update({content:`✅ Fila **#${id}** movida para <#${channelId}>.`,components:[]});
+  }
+  if(i.customId.startsWith("cfgselect:role:")){
+   const id=Number(i.customId.split(":")[2]),q=getQueue(id),roleId=i.values[0];
+   if(!q||q.guild_id!==i.guildId)return i.update({content:"Fila inválida.",components:[]});
+   db.prepare("UPDATE queues SET role_id=? WHERE id=?").run(roleId,id);
+   return i.update({content:`✅ Cargo <@&${roleId}> definido para a fila **#${id}**.`,components:[]});
+  }
   if(i.customId.startsWith("cfgact:")){
    const [,action,idRaw]=i.customId.split(":"); const id=Number(idRaw); const q=getQueue(id);
    if(!q||q.guild_id!==i.guildId)return i.reply({content:"Fila inválida.",ephemeral:true});
@@ -147,11 +204,38 @@ client.on(Events.InteractionCreate,async i=>{
   db.prepare("UPDATE queues SET message_id=? WHERE id=?").run(msg.id,q.id);
   return i.reply({content:`✅ Fila **${nome}** criada como **#${q.id}**.`,ephemeral:true});
  }
+ if(i.isModalSubmit() && i.customId.startsWith("cfgmodal:edit:")){
+  const id=Number(i.customId.split(":")[2]),q=getQueue(id);
+  if(!q||q.guild_id!==i.guildId)return i.reply({content:"Fila inválida.",ephemeral:true});
+  const nome=i.fields.getTextInputValue("nome").trim(),preco=i.fields.getTextInputValue("preco").trim();
+  const formato=Number(i.fields.getTextInputValue("formato").trim()),plataforma=i.fields.getTextInputValue("plataforma").trim(),modo=i.fields.getTextInputValue("modo").trim();
+  if(![1,2,3,4,5].includes(formato))return i.reply({content:"❌ Formato inválido.",ephemeral:true});
+  if(!/^R\\$\\s*\\d{1,4}(?:[.,]\\d{2})?$/.test(preco))return i.reply({content:"❌ Preço inválido. Ex.: R$ 5,00.",ephemeral:true});
+  if(!["Emulador","Mobile"].includes(plataforma)||!["Gelo normal","Gelo infinito"].includes(modo))return i.reply({content:"❌ Plataforma ou modo inválido.",ephemeral:true});
+  db.prepare("UPDATE queues SET name=?,format=?,price=?,platform=?,mode=? WHERE id=?").run(nome,formato,preco,plataforma,modo,id);
+  await updatePanel(getQueue(id));
+  return i.reply({content:`✅ Fila **#${id}** atualizada.`,ephemeral:true});
+ }
+ if(i.isModalSubmit() && i.customId.startsWith("cfgmodal:image:")){
+  const id=Number(i.customId.split(":")[2]),q=getQueue(id);
+  if(!q||q.guild_id!==i.guildId)return i.reply({content:"Fila inválida.",ephemeral:true});
+  const url=i.fields.getTextInputValue("url").trim();
+  if(url&&!/^https?:\\/\\//i.test(url))return i.reply({content:"❌ URL inválida. Use uma URL começando por https://",ephemeral:true});
+  db.prepare("UPDATE queues SET image_url=? WHERE id=?").run(url||null,id);
+  await updatePanel(getQueue(id));
+  return i.reply({content:`✅ Logo da fila **#${id}** atualizada.`,ephemeral:true});
+ }
  if(i.isStringSelectMenu() && i.customId==="cfg:select"){
   const id=Number(i.values[0]),q=getQueue(id);
   if(!q||q.guild_id!==i.guildId)return i.update({content:"Fila inválida.",components:[]});
   const e=new EmbedBuilder().setTitle(`⚙️ Gerenciar • #${q.id} ${q.name}`).setDescription(`**${q.format}x${q.format} • ${q.platform} • ${q.mode} • ${q.price}**\nStatus: ${q.status==="open"?"🟢 Aberta":"🔴 Fechada"}\nJogadores: **${members(q.id).length}/${q.format*2}**`);
   const rows=[
+   new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`cfgedit:${id}`).setLabel("EDITAR DADOS").setEmoji("✏️").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`cfgimage:${id}`).setLabel("LOGO").setEmoji("🖼️").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`cfgchannel:${id}`).setLabel("CANAL").setEmoji("📢").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`cfgrole:${id}`).setLabel("CARGO").setEmoji("🛡️").setStyle(ButtonStyle.Secondary)
+   ),
    new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`cfgact:open:${id}`).setLabel("ABRIR").setEmoji("🟢").setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId(`cfgact:close:${id}`).setLabel("FECHAR").setEmoji("🔴").setStyle(ButtonStyle.Danger),
